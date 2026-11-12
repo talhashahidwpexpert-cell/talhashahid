@@ -1,0 +1,44 @@
+# Builds the WorkLog tracker installers on GitHub's free build machines.
+# Windows -> WorkLog-Setup-x.y.z.exe   macOS -> WorkLog-x.y.z.dmg
+# How to run: GitHub -> this repository -> Actions -> "Build tracker" -> Run workflow.
+# The finished installers appear at the bottom of the run under "Artifacts".
+name: Build tracker
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm install
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: npm run dist:win
+        env:
+          # Optional code signing: add repository secrets WIN_CSC_LINK (base64 .pfx) and WIN_CSC_KEY_PASSWORD
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      - name: Build macOS installer
+        if: runner.os == 'macOS'
+        run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WorkLog-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+          if-no-files-found: error
