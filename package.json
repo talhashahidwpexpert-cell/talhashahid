@@ -1,0 +1,49 @@
+{
+  "name": "worklog-tracker",
+  "productName": "WorkLog",
+  "version": "1.2.0",
+  "description": "WorkLog desktop time tracker for Windows and macOS",
+  "main": "main.js",
+  "author": "Your Company",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --x64 --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "check": "node --check main.js && node --check preload.js && node --check src/renderer.js"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.worklog.tracker",
+    "productName": "WorkLog",
+    "copyright": "Copyright © 2026",
+    "files": ["main.js", "preload.js", "src/**/*", "assets/**/*", "package.json"],
+    "directories": { "output": "dist", "buildResources": "assets" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.png",
+      "artifactName": "WorkLog-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "WorkLog"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.productivity",
+      "artifactName": "WorkLog-${version}.dmg",
+      "extendInfo": {
+        "LSUIElement": false
+      }
+    }
+  }
+}

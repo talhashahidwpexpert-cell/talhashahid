@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'">
+  <title>WorkLog</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Sign in -->
+  <section id="v-login" class="view" hidden>
+    <div class="login-head"><div class="logo">◷</div><h1>WorkLog</h1><p>Sign in with your dashboard account</p></div>
+    <form id="login-form" class="form">
+      <label>Dashboard address<input id="l-server" type="text" required placeholder="https://tracker.yourcompany.com" autocomplete="url"></label>
+      <label>E-mail<input id="l-email" type="email" required autocomplete="username"></label>
+      <label>Password<input id="l-pass" type="password" required autocomplete="current-password"></label>
+      <label id="l-code-wrap" hidden>6-digit code from your authenticator app<input id="l-code" type="text" inputmode="numeric" maxlength="7" autocomplete="one-time-code" class="code"></label>
+      <p id="l-error" class="error" hidden></p>
+      <button class="btn primary big" id="l-btn">Sign in</button>
+    </form>
+    <p class="hint">No account yet? Create a free personal account on your company's dashboard, or ask your manager for an invitation.</p>
+  </section>
+
+  <!-- Signed in, but not part of a company yet -->
+  <section id="v-wait" class="view" hidden>
+    <header class="top"><div><strong id="w-name"></strong><small>Personal account</small></div></header>
+    <div class="card wait">
+      <div class="wait-icon">⏳</div>
+      <h2>Waiting to join a company</h2>
+      <p>Your account is ready. A company needs to add you before you can track time.</p>
+      <p id="w-invites" class="badge-line on" hidden></p>
+      <ol>
+        <li>Give <strong id="w-email"></strong> to your manager, or open their join link.</li>
+        <li>Accept the invitation on the dashboard.</li>
+        <li>This window unlocks by itself within a minute.</li>
+      </ol>
+    </div>
+    <button class="btn primary big" id="w-open">Open the dashboard</button>
+    <button class="btn link" id="w-logout">Sign out</button>
+  </section>
+
+  <!-- Policy consent -->
+  <section id="v-policy" class="view" hidden>
+    <header class="top"><div><strong id="p-company"></strong><small>Before you start</small></div></header>
+    <div class="card">
+      <h2>How tracking works here</h2>
+      <p id="p-shots" class="badge-line"></p>
+      <div id="p-text" class="policy"></div>
+    </div>
+    <p id="p-error" class="error" hidden></p>
+    <button class="btn primary big" id="p-accept">I understand – continue</button>
+    <button class="btn link" id="p-logout">Sign out</button>
+  </section>
+
+  <!-- Main -->
+  <section id="v-main" class="view" hidden>
+    <header class="top">
+      <div><strong id="m-name"></strong><small id="m-company"></small></div>
+      <span id="m-net" class="net" title=""></span>
+      <button class="icon" id="m-menu" title="Menu">⋯</button>
+      <div class="menu" id="menu" hidden>
+        <button data-act="dashboard">Open dashboard</button>
+        <button data-act="sync">Sync now</button>
+        <label class="menu-check"><input type="checkbox" id="m-autolaunch"> Start with my computer</label>
+        <button data-act="logout" class="danger">Sign out</button>
+      </div>
+    </header>
+
+    <div class="project card">
+      <span class="label">Working on</span>
+      <div class="pname"><i id="m-color"></i><strong id="m-project"></strong></div>
+      <small id="m-client"></small>
+      <small class="auto">Set by your manager · changes automatically</small>
+    </div>
+
+    <div class="clock">
+      <span id="m-state" class="state"></span>
+      <div id="m-timer" class="timer">00:00:00</div>
+      <div class="today">Today <strong id="m-today">0h 00m</strong></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary big" id="b-start">▶ Start</button>
+      <button class="btn big" id="b-break" hidden>☕ Break</button>
+      <button class="btn big danger-ghost" id="b-stop" hidden>■ Stop</button>
+    </div>
+
+    <div class="card shots" id="m-shots">
+      <div class="shots-head"><span class="cam">◉</span><div><strong id="s-title"></strong><small id="s-sub"></small></div></div>
+      <div id="s-perm" class="warn" hidden>macOS blocks screenshots. <button class="btn link" id="s-perm-btn">Open Screen Recording settings</button> and switch on WorkLog, then restart the app.</div>
+      <div id="s-last" class="last" hidden><img id="s-img" alt="Last screenshot"><small id="s-when"></small></div>
+    </div>
+
+    <footer><span id="m-sync"></span><span id="m-ver"></span></footer>
+  </section>
+
+  <!-- Idle prompt -->
+  <div class="overlay" id="idle" hidden>
+    <div class="dialog">
+      <h2>Welcome back</h2>
+      <p>You were away for <strong id="idle-min"></strong> minutes while the timer was running.</p>
+      <button class="btn primary big" id="idle-keep">Keep this time (I was working)</button>
+      <button class="btn big" id="idle-drop">Remove the away time</button>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

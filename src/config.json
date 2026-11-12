@@ -1,0 +1,5 @@
+{
+  "defaultServer": "https://tracker.alshahid.store",
+  "heartbeatSeconds": 30,
+  "configRefreshSeconds": 180
+}
