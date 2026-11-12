@@ -69,15 +69,19 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 
 // ------------------------------------------------------------------ server API
 function apiUrl(p) { return S.server.replace(/\/+$/, '') + '/api/' + p; }
-async function api(method, p, body, isForm) {
+/**
+ * opts.raw: { data: Buffer, type: 'image/jpeg' } sends a raw body – screenshots go this way, because many hosting
+ * firewalls block multipart file uploads. opts.timeout in ms.
+ */
+async function api(method, p, body, opts = {}) {
   const headers = { 'Accept': 'application/json', 'User-Agent': 'WorkLogTracker/' + app.getVersion() };
   const tok = getToken();
   if (tok) { headers['Authorization'] = 'Bearer ' + tok; headers['X-Auth-Token'] = tok; }
   let payload;
-  if (body && isForm) payload = body;
+  if (opts.raw) { headers['Content-Type'] = opts.raw.type; payload = opts.raw.data; }
   else if (body) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 30000);
+  const t = setTimeout(() => ctrl.abort(), opts.timeout || 30000);
   try {
     const res = await fetch(apiUrl(p), { method, headers, body: payload, signal: ctrl.signal });
     let data = {};
@@ -88,7 +92,7 @@ async function api(method, p, body, isForm) {
 function applyConfig(c) {
   if (!c || !c.user) return;
   const before = S.config && S.config.screenshots;
-  S.config = { user: c.user, company: c.company, project: c.project, task: c.task, screenshots: c.screenshots, idle_minutes: c.idle_minutes, policy: c.policy, pending_invites: c.pending_invites || 0 };
+  S.config = { user: c.user, company: c.company, project: c.project, task: c.task, screenshots: c.screenshots, idle_minutes: c.idle_minutes, idle_action: c.idle_action || 'count', policy: c.policy, pending_invites: c.pending_invites || 0 };
   // removed from the company / switched company → stop the local timer
   if (!c.company && S.status !== 'stopped') { S.status = 'stopped'; S.entry = null; S.breakStartedAt = null; S.nextShotAt = null; updateTray(); }
   if (typeof c.today_seconds === 'number') { S.todayBase = c.today_seconds; S.todayAt = Date.now(); }
@@ -120,18 +124,28 @@ async function flush() {
       try {
         if (it.type === 'shot') {
           const file = path.join(PENDING_DIR, it.file);
-          if (!fs.existsSync(file)) { dropItem(it); continue; }
-          const fd = new FormData();
-          fd.append('uuid', it.uuid); fd.append('taken_at', String(it.taken_at)); fd.append('activity', String(it.activity)); fd.append('screen', String(it.screen));
-          fd.append('image', new Blob([fs.readFileSync(file)], { type: 'image/jpeg' }), 'shot.jpg');
-          r = await api('POST', 'screenshot', fd, true);
+          // give up on screenshots that could not be sent for a day (the time itself is never dropped)
+          if (!fs.existsSync(file) || nowSec() - it.taken_at > 86400 || it.tries > 40) { try { fs.unlinkSync(file); } catch (e) {} dropItem(it); save(); continue; }
+          const q = new URLSearchParams({ uuid: it.uuid, taken_at: String(it.taken_at), activity: String(it.activity), screen: String(it.screen) });
+          r = await api('POST', 'screenshot?' + q.toString(), null, { raw: { data: fs.readFileSync(file), type: 'image/jpeg' }, timeout: 120000 });
           if (r.status === 200 || (r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 429)) { try { fs.unlinkSync(file); } catch (e) {} }
+          if (r.status === 200) { S.shotError = ''; S.lastShotSent = nowSec(); }
+          else if (r.status >= 400) S.shotError = 'Screenshot not accepted (' + r.status + ')';
         } else {
           r = await api('POST', it.path, it.body);
         }
       } catch (e) {
-        S.online = false; S.lastError = 'No connection – your time is saved and will be sent later.';
-        push(); flushSoon(Math.min(60000, 5000 * (++it.tries)));
+        it.tries++;
+        if (it.type === 'shot') {
+          // a slow or failed screenshot upload never marks the app offline and never holds back the time
+          S.shotError = 'Screenshot upload failed – retrying';
+          save();
+          if (S.queue.some(q => q.type !== 'shot')) continue;
+          flushSoon(Math.min(60000, 5000 * it.tries)); push();
+          return;
+        }
+        S.online = false; S.lastError = 'No connection – your time is saved on this computer and sent as soon as you are online.';
+        push(); flushSoon(Math.min(20000, 3000 * it.tries));
         return;
       }
       S.online = true; S.lastError = '';
@@ -201,8 +215,19 @@ function endEntry(at, reason) {
 function takeBreak(auto) {
   if (S.status !== 'running') return;
   endEntry(null, auto ? 'locked' : 'break');
-  S.status = 'break'; S.breakStartedAt = nowSec(); S.autoPaused = !!auto;
+  S.status = 'break'; S.breakStartedAt = nowSec(); S.autoPaused = auto ? 'lock' : false;
   S.nextShotAt = null;
+  push(); updateTray();
+}
+/** No keyboard/mouse for the company's limit: stop the timer at the moment the inactivity began */
+function pauseForIdle(idleFrom) {
+  if (S.status !== 'running' || !S.entry) return;
+  const from = Math.max(S.entry.startedAt, idleFrom);
+  endEntry(from, 'idle');
+  S.status = 'break'; S.breakStartedAt = from; S.autoPaused = 'idle'; S.nextShotAt = null; S.idleSince = null; S.idleWoke = false;
+  const mins = Math.max(1, Math.round((nowSec() - from) / 60));
+  const resumeAuto = ((S.config && S.config.idle_action) || 'pause') === 'pause';
+  try { new Notification({ title: 'WorkLog paused', body: `No activity for ${mins} min – these minutes are not counted. ` + (resumeAuto ? 'Move the mouse to continue.' : 'Press Resume when you are back.') }).show(); } catch (e) {}
   push(); updateTray();
 }
 function stopWork() {
@@ -247,10 +272,23 @@ setInterval(() => {
   S.entry.idleAcc = 0;
 }, BEAT_MS);
 
-// idle return check every 5 s
+// inactivity check every 5 s – what happens is set by the company (Settings → Working hours)
+function idleAction() { return (S.config && S.config.idle_action) || 'pause'; }
 setInterval(() => {
-  if (S.status !== 'running' || !S.idleSince) return;
-  if (idleSeconds() < 10) {
+  const idle = idleSeconds();
+  const action = idleAction();
+  // pause the timer when nobody has touched keyboard or mouse for the limit
+  if (S.status === 'running' && action !== 'count' && idle >= idleLimit()) { pauseForIdle(nowSec() - idle); return; }
+  // back after an inactivity pause
+  if (S.status === 'break' && S.autoPaused === 'idle' && idle < 5) {
+    if (action === 'pause') {
+      startWork();
+      try { new Notification({ title: 'WorkLog', body: 'Welcome back – your timer continues.' }).show(); } catch (e) {}
+    } else if (!S.idleWoke) { S.idleWoke = true; showWindow(); push(); }
+    return;
+  }
+  // "keep counting" mode: ask about long away periods when the person comes back
+  if (action === 'count' && S.status === 'running' && S.idleSince && idle < 10) {
     const away = nowSec() - S.idleSince;
     if (away >= Math.max(600, idleLimit() * 2)) { S.idlePrompt = { from: S.idleSince, minutes: Math.round(away / 60) }; showWindow(); }
     S.idleSince = null; push();
@@ -288,7 +326,7 @@ async function captureNow() {
   const displays = S.config.screenshots.all_screens ? screen.getAllDisplays() : [screen.getPrimaryDisplay()];
   const maxW = Math.max(...displays.map(d => Math.round(d.size.width * (d.scaleFactor || 1))));
   const maxH = Math.max(...displays.map(d => Math.round(d.size.height * (d.scaleFactor || 1))));
-  const scale = Math.min(1, 1920 / maxW);
+  const scale = Math.min(1, 1600 / maxW); // small enough to upload quickly on a slow connection
   const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(maxW * scale), height: Math.round(maxH * scale) } });
   const wanted = S.config.screenshots.all_screens ? sources : sources.filter(s => String(s.display_id) === String(screen.getPrimaryDisplay().id)).slice(0, 1);
   const list = wanted.length ? wanted : sources.slice(0, 1);
@@ -298,7 +336,7 @@ async function captureNow() {
   for (const src of list) {
     if (src.thumbnail.isEmpty()) continue;
     n++;
-    const jpg = src.thumbnail.toJPEG(70);
+    const jpg = src.thumbnail.toJPEG(62);
     const name = crypto.randomUUID() + '.jpg';
     fs.writeFileSync(path.join(PENDING_DIR, name), jpg);
     enqueue({ type: 'shot', file: name, uuid: S.entry.uuid, taken_at: nowSec(), activity, screen: n });
@@ -323,7 +361,7 @@ setInterval(async () => {
 // ------------------------------------------------------------------ lock / sleep → automatic break
 function onAway() { if (S.status === 'running') takeBreak(true); }
 function onBack() {
-  if (S.status === 'break' && S.autoPaused) {
+  if (S.status === 'break' && (S.autoPaused === 'lock' || S.autoPaused === true)) {
     startWork();
     try { new Notification({ title: 'WorkLog', body: 'Welcome back – your timer continues.' }).show(); } catch (e) {}
   }
@@ -366,6 +404,8 @@ function publicState() {
     signedIn, server: S.server, email: S.email, config: S.config, status: S.status,
     startedAt: S.entry ? S.entry.startedAt : null, breakStartedAt: S.breakStartedAt, autoPaused: S.autoPaused,
     today: currentToday(), online: S.online, pending: S.queue.length, error: S.lastError,
+    pendingTime: S.queue.filter(q => q.type !== 'shot').length, pendingShots: S.queue.filter(q => q.type === 'shot').length, shotError: S.shotError || '',
+    idleAction: idleAction(), idleMinutes: Math.round(idleLimit() / 60),
     shots: shotInfo, idlePrompt: S.idlePrompt, autoLaunch: S.autoLaunch, platform: process.platform, version: app.getVersion(),
   };
 }

@@ -48,10 +48,21 @@ function render(s) {
   const now = Date.now() / 1000;
   const running = s.status === 'running';
   document.body.dataset.status = s.status;
-  if (running) { $('m-state').textContent = '● Tracking'; $('m-timer').textContent = hms(now - s.startedAt); }
-  else if (s.status === 'break') { $('m-state').textContent = s.autoPaused ? 'Paused – screen locked' : 'On break'; $('m-timer').textContent = hms(now - s.breakStartedAt); }
-  else { $('m-state').textContent = 'Ready to start'; $('m-timer').textContent = '00:00:00'; }
-  $('m-today').textContent = hm(s.today);
+  // big clock = everything worked today (what the dashboard shows); small line = this session or the pause
+  $('m-timer').textContent = hms(s.today);
+  if (running) {
+    $('m-state').textContent = '● Tracking';
+    $('m-sub-label').textContent = 'This session'; $('m-today').textContent = hms(now - s.startedAt);
+  } else if (s.status === 'break') {
+    $('m-state').textContent = s.autoPaused === 'idle' ? 'Paused – no activity' : s.autoPaused ? 'Paused – screen locked' : 'On break';
+    $('m-sub-label').textContent = s.autoPaused === 'idle' ? 'Inactive for' : 'Paused for'; $('m-today').textContent = hms(now - s.breakStartedAt);
+  } else {
+    $('m-state').textContent = 'Ready to start';
+    $('m-sub-label').textContent = 'This session'; $('m-today').textContent = '00:00:00';
+  }
+  $('m-idle-note').textContent = s.autoPaused === 'idle' && s.status === 'break'
+    ? (s.idleAction === 'pause' ? 'The inactive minutes are not counted. Move the mouse or type to continue.' : 'The inactive minutes are not counted. Press Resume when you are back.')
+    : (running && s.idleAction !== 'count' ? `Pauses by itself after ${s.idleMinutes} min without keyboard or mouse.` : '');
   $('b-start').textContent = s.status === 'break' ? '▶ Resume' : '▶ Start';
   $('b-start').hidden = running;
   $('b-break').hidden = !running;
@@ -69,8 +80,11 @@ function render(s) {
   if (sh.lastThumb) $('s-img').src = sh.lastThumb;
   if (sh.lastAt) $('s-when').textContent = 'Last screenshot ' + clock(sh.lastAt) + ' – you can see all of yours in the dashboard (if your company allows it).';
 
-  $('m-sync').textContent = s.pending ? `${s.pending} item${s.pending > 1 ? 's' : ''} waiting to sync` + (s.online ? '…' : ' (offline)') : (s.error || 'All synced');
-  $('m-sync').className = s.pending && !s.online ? 'warn-text' : '';
+  // time and screenshots are reported separately: time is sent first, screenshots may follow later on a slow line
+  const timeTxt = s.pendingTime ? (s.online ? `Saving ${s.pendingTime} time update${s.pendingTime > 1 ? 's' : ''}…` : `Offline – ${s.pendingTime} time update${s.pendingTime > 1 ? 's' : ''} saved here, sending when online`) : '✓ Time saved to the dashboard';
+  const shotTxt = s.pendingShots ? ` · ${s.pendingShots} screenshot${s.pendingShots > 1 ? 's' : ''} uploading` + (s.shotError ? ' (retrying)' : '') : '';
+  $('m-sync').textContent = timeTxt + shotTxt;
+  $('m-sync').className = s.pendingTime && !s.online ? 'warn-text' : (s.pendingTime ? '' : 'ok-text');
   $('m-ver').textContent = 'v' + s.version;
   $('m-autolaunch').checked = !!s.autoLaunch;
 
