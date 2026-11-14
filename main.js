@@ -11,6 +11,12 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+// The server has an IPv4 and an IPv6 address, and many internet connections cannot reach IPv6.
+// By default the runtime gives the first address only 250 ms. On a slow line that is not enough: it then
+// switches to the unreachable IPv6 address and the request fails after 10 s, so screenshots kept retrying.
+// Fix: try IPv4 first and give it 5 s before moving on.
+try { require('dns').setDefaultResultOrder('ipv4first'); } catch (e) {}
+try { require('net').setDefaultAutoSelectFamilyAttemptTimeout(5000); } catch (e) {}
 
 const APP_CFG = JSON.parse(fs.readFileSync(path.join(__dirname, 'src', 'config.json'), 'utf8'));
 const DATA = app.getPath('userData');
